@@ -14,7 +14,8 @@ from mkdoxy.markdown import (
     MdInlineEquation,
     MdItalic,
     MdLink,
-    MdList,
+    MdItemizedList,
+    MdOrderedList,
     MdParagraph,
     MdRenderer,
     MdTable,
@@ -166,8 +167,17 @@ class XmlParser:
             elif item.tag == "heading":
                 ret.append(MdHeader(int(item.get("level")), self.paras(item)))
 
-            elif item.tag in ["orderedlist", "itemizedlist"]:
-                lst = MdList([])
+            elif item.tag in "itemizedlist":
+                lst = MdItemizedList([])
+                for listitem in item.findall("listitem"):
+                    i = MdParagraph([])
+                    for para in listitem.findall("para"):
+                        i.extend(self.paras(para))
+                    lst.append(i)
+                ret.append(lst)
+
+            elif item.tag == "orderedlist":
+                lst = MdOrderedList([])
                 for listitem in item.findall("listitem"):
                     i = MdParagraph([])
                     for para in listitem.findall("para"):
@@ -232,7 +242,7 @@ class XmlParser:
                     ret.extend(MdParagraph(self.paras(para)) for para in listitem.findall("para"))
             elif item.tag == "parameterlist":
                 parameteritems = item.findall("parameteritem")
-                lst = MdList([])
+                lst = MdItemizedList([])
                 for parameteritem in parameteritems:
                     name = parameteritem.find("parameternamelist").find("parametername")
                     description = parameteritem.find("parameterdescription").findall("para")
