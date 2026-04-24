@@ -437,7 +437,6 @@ class GeneratorSnippets:
         namespaced_refids: set = set()
 
         def _collect_from_ns(nodes):
-            """Recursively collect concept refids only from inside namespaces."""
             for n in nodes:
                 if n.is_concept:
                     namespaced_refids.add(n.refid)
@@ -452,12 +451,57 @@ class GeneratorSnippets:
                     return True
             return False
 
+        def _find_ns_by_name(name, search_nodes=None):
+            if search_nodes is None:
+                search_nodes = doxy.root.children
+            for n in search_nodes:
+                if n.is_namespace and n.name_long == name:
+                    return n
+                if n.is_namespace:
+                    found = _find_ns_by_name(name, n.children)
+                    if found:
+                        return found
+            return None
+
         for n in doxy.root.children:
             if n.is_namespace:
                 _collect_from_ns(n.children)
-        top_level = [c for c in doxy.concepts.children if c.refid not in namespaced_refids]
-        ns_with_concepts = [n for n in doxy.root.children if n.is_namespace and _has_concepts(n)]
-        nodes = ns_with_concepts + top_level
+
+        if namespaced_refids:
+            # Doxygen < 1.9.5: namespaces already have concept children
+            top_level = [c for c in doxy.concepts.children if c.refid not in namespaced_refids]
+            ns_with_concepts = [n for n in doxy.root.children if n.is_namespace and _has_concepts(n)]
+            nodes = ns_with_concepts + top_level
+        else:
+            # Doxygen >= 1.9.5: match concepts to namespaces by FQN
+            top_level = []
+            ns_concepts = {}
+            for c in doxy.concepts.children:
+                name = c.name_long or c.name or ""
+                if "::" in name:
+                    ns_name = name.rsplit("::", 1)[0]
+                    ns_concepts.setdefault(ns_name, []).append(c)
+                else:
+                    top_level.append(c)
+
+            ns_nodes = []
+            processed_ns = set()
+            for ns_name, concepts in ns_concepts.items():
+                ns_node = _find_ns_by_name(ns_name)
+                if ns_node and ns_node.refid not in processed_ns:
+                    existing_refids = {ch.refid for ch in ns_node.children if ch.is_concept}
+                    for c in concepts:
+                        if c.refid not in existing_refids:
+                            ns_node.add_child(c)
+                    processed_ns.add(ns_node.refid)
+                    top_ns = ns_node
+                    while top_ns._parent and top_ns._parent.is_namespace:
+                        top_ns = top_ns._parent
+                    if top_ns.refid not in {n.refid for n in ns_nodes}:
+                        ns_nodes.append(top_ns)
+                else:
+                    top_level.extend(concepts)
+            nodes = ns_nodes + top_level
 
         self._setLinkPrefixNodes(nodes, self.pageUrlPrefix + project + "/")
         return self.generatorBase[project].concepts(nodes, config)

@@ -243,18 +243,52 @@ class GeneratorAuto:
                 return True
         return False
 
+    def _filter_concept_tree(self, node: Node) -> Node:
+        """Create a shallow copy of a namespace node keeping only concepts and
+        sub-namespaces that (recursively) contain concepts.  This prevents the
+        template from rendering namespaces that have no concept descendants."""
+        from copy import copy
+
+        filtered = copy(node)
+        new_children = []
+        for child in node.children:
+            if child.is_concept:
+                new_children.append(child)
+            elif child.is_namespace and self._has_concepts_recursive(child):
+                new_children.append(self._filter_concept_tree(child))
+        filtered._children = new_children
+        return filtered
+
+    def _find_namespace_by_name(self, name: str, nodes=None):
+        """Find a namespace node by its fully qualified name in the root tree."""
+        if nodes is None:
+            nodes = self.doxygen.root.children
+        for n in nodes:
+            if n.is_namespace and n.name_long == name:
+                return n
+            if n.is_namespace:
+                found = self._find_namespace_by_name(name, n.children)
+                if found:
+                    return found
+        return None
+
     def _build_concept_nodes(self) -> list:
         """Build a combined node list for the concept list page.
 
         Returns namespace nodes from root (that recursively contain concepts)
         plus top-level concepts that are not inside any namespace.  This gives
         the concepts template a hierarchy it can render like the Class List.
+
+        Handles two Doxygen versions:
+        - < 1.9.5: concepts are variables inside files, reclassified as concepts,
+          namespaces may have them as children via innerconcept-like mechanism.
+        - >= 1.9.5: concepts are native compounds in index.xml but namespaces
+          do NOT have innerconcept elements. We match by FQN prefix.
         """
-        # Collect refids of concepts that live inside namespaces in root
+        # First try: check if namespaces already have concept children (Doxygen < 1.9.5 path)
         namespaced_refids: set = set()
 
         def _collect_from_ns(nodes):
-            """Recursively collect concept refids only from inside namespaces."""
             for n in nodes:
                 if n.is_concept:
                     namespaced_refids.add(n.refid)
@@ -265,15 +299,53 @@ class GeneratorAuto:
             if n.is_namespace:
                 _collect_from_ns(n.children)
 
-        # Top-level concepts (not nested under any namespace)
-        top_level = [c for c in self.doxygen.concepts.children if c.refid not in namespaced_refids]
+        if namespaced_refids:
+            # Doxygen < 1.9.5 path: namespaces already have concepts as children
+            top_level = [c for c in self.doxygen.concepts.children if c.refid not in namespaced_refids]
+            ns_with_concepts = [
+                self._filter_concept_tree(n)
+                for n in self.doxygen.root.children if n.is_namespace and self._has_concepts_recursive(n)
+            ]
+            return ns_with_concepts + top_level
 
-        # Namespace nodes from root that (recursively) contain concepts
-        ns_with_concepts = [
-            n for n in self.doxygen.root.children if n.is_namespace and self._has_concepts_recursive(n)
-        ]
+        # Doxygen >= 1.9.5 path: match concepts to namespaces by FQN
+        # concept.name contains FQN like "gl::traits::c_arithmetic"
+        top_level = []
+        ns_concepts: dict = {}  # namespace_fqn -> [concept_node, ...]
 
-        return ns_with_concepts + top_level
+        for c in self.doxygen.concepts.children:
+            name = c.name_long or c.name or ""
+            if "::" in name:
+                ns_name = name.rsplit("::", 1)[0]
+                ns_concepts.setdefault(ns_name, []).append(c)
+            else:
+                top_level.append(c)
+
+        # Find matching namespace nodes and inject concepts as children
+        ns_nodes = []
+        processed_ns = set()
+        for ns_name, concepts in ns_concepts.items():
+            ns_node = self._find_namespace_by_name(ns_name)
+            if ns_node and ns_node.refid not in processed_ns:
+                # Add concepts to namespace if not already there
+                existing_refids = {ch.refid for ch in ns_node.children if ch.is_concept}
+                for c in concepts:
+                    if c.refid not in existing_refids:
+                        ns_node.add_child(c)
+                processed_ns.add(ns_node.refid)
+                # Walk up to find top-level namespace
+                top_ns = ns_node
+                while top_ns._parent and top_ns._parent.is_namespace:
+                    top_ns = top_ns._parent
+                if top_ns.refid not in {n.refid for n in ns_nodes}:
+                    ns_nodes.append(top_ns)
+            else:
+                # Namespace not found in root tree — treat as top-level
+                top_level.extend(concepts)
+
+        # Filter namespace trees to only show concept-relevant nodes
+        filtered_ns = [self._filter_concept_tree(n) for n in ns_nodes]
+        return filtered_ns + top_level
 
     def concepts_page(self, config: dict = None):
         path = "concepts.md"
