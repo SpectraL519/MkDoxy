@@ -73,7 +73,7 @@ class GeneratorAuto:
         self.namespaces(self.doxygen.root.children, defaultTemplateConfig)
         self.classes(self.doxygen.root.children, defaultTemplateConfig)
         self.hierarchy(self.doxygen.root.children, defaultTemplateConfig)
-        self.concepts_page(self.doxygen.concepts.children, defaultTemplateConfig)
+        self.concepts_page(defaultTemplateConfig)
         self.concept_members(self.doxygen.concepts.children, defaultTemplateConfig)
         self.modules(self.doxygen.groups.children, defaultTemplateConfig)
         self.pages(self.doxygen.pages.children, defaultTemplateConfig)
@@ -234,9 +234,51 @@ class GeneratorAuto:
         output = self.generatorBase.classes(nodes, config)
         self.save(path, output)
 
-    def concepts_page(self, nodes: [Node], config: dict = None):
+    def _has_concepts_recursive(self, node: Node) -> bool:
+        """Check if a node (or its descendants) contains any concept children."""
+        for child in node.children:
+            if child.is_concept:
+                return True
+            if child.is_namespace and self._has_concepts_recursive(child):
+                return True
+        return False
+
+    def _build_concept_nodes(self) -> list:
+        """Build a combined node list for the concept list page.
+
+        Returns namespace nodes from root (that recursively contain concepts)
+        plus top-level concepts that are not inside any namespace.  This gives
+        the concepts template a hierarchy it can render like the Class List.
+        """
+        # Collect refids of concepts that live inside namespaces in root
+        namespaced_refids: set = set()
+
+        def _collect_from_ns(nodes):
+            """Recursively collect concept refids only from inside namespaces."""
+            for n in nodes:
+                if n.is_concept:
+                    namespaced_refids.add(n.refid)
+                if n.is_namespace:
+                    _collect_from_ns(n.children)
+
+        for n in self.doxygen.root.children:
+            if n.is_namespace:
+                _collect_from_ns(n.children)
+
+        # Top-level concepts (not nested under any namespace)
+        top_level = [c for c in self.doxygen.concepts.children if c.refid not in namespaced_refids]
+
+        # Namespace nodes from root that (recursively) contain concepts
+        ns_with_concepts = [
+            n for n in self.doxygen.root.children if n.is_namespace and self._has_concepts_recursive(n)
+        ]
+
+        return ns_with_concepts + top_level
+
+    def concepts_page(self, config: dict = None):
         path = "concepts.md"
 
+        nodes = self._build_concept_nodes()
         output = self.generatorBase.concepts(nodes, config)
         self.save(path, output)
 
