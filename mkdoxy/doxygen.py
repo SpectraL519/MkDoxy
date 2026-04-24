@@ -32,6 +32,7 @@ class Doxygen:
         self.files = Node("root", None, self.ctx, self.parser, None)
         self.pages = Node("root", None, self.ctx, self.parser, None)
         self.examples = Node("root", None, self.ctx, self.parser, None)
+        self.concepts = Node("root", None, self.ctx, self.parser, None)
 
         for compound in xml.findall("compound"):
             kind = Kind.from_str(compound.get("kind"))
@@ -86,6 +87,16 @@ class Doxygen:
                 )
                 node._visibility = Visibility.PUBLIC
                 self.examples.add_child(node)
+            if kind == Kind.CONCEPT:
+                node = Node(
+                    os.path.join(index_path, f"{refid}.xml"),
+                    None,
+                    self.ctx,
+                    self.parser,
+                    self.root,
+                )
+                node._visibility = Visibility.PUBLIC
+                self.concepts.add_child(node)
 
         if self.debug:
             log.info("Deduplicating data... (may take a minute!)")
@@ -101,6 +112,13 @@ class Doxygen:
         for child in self.examples.children.copy():
             self._fix_duplicates(child, self.examples, [Kind.EXAMPLE])
 
+        for child in self.concepts.children.copy():
+            self._fix_duplicates(child, self.concepts, [Kind.CONCEPT])
+
+        # For Doxygen < 1.9.5, concepts are emitted as variables inside file compounds.
+        # After node parsing reclassifies them, collect them into the concepts list.
+        self._collect_concepts_from_files()
+
         self._fix_parents(self.files)
 
         if self.debug:
@@ -110,6 +128,7 @@ class Doxygen:
         self._recursive_sort(self.files)
         self._recursive_sort(self.pages)
         self._recursive_sort(self.examples)
+        self._recursive_sort(self.concepts)
 
     def _fix_parents(self, node: Node):
         if node.is_dir or node.is_root:
@@ -118,6 +137,27 @@ class Doxygen:
                     child._parent = node
                 if child.is_dir:
                     self._fix_parents(child)
+
+    def _collect_concepts_from_files(self):
+        """Collect concept nodes from file/root trees into the concepts list.
+
+        For Doxygen < 1.9.5, concepts are emitted as variable members inside
+        file compounds. After Node parsing reclassifies them as Kind.CONCEPT,
+        this method finds them and adds them to self.concepts so they appear
+        in the concept list and get their own pages.
+        """
+        existing_refids = {c.refid for c in self.concepts.children}
+
+        def _find_concepts(nodes):
+            for node in nodes:
+                if node.kind == Kind.CONCEPT and node.refid not in existing_refids:
+                    existing_refids.add(node.refid)
+                    self.concepts.add_child(node)
+                if node.has_children:
+                    _find_concepts(node.children)
+
+        _find_concepts(self.files.children)
+        _find_concepts(self.root.children)
 
     def _should_sort(self, node: Node) -> bool:
         if isinstance(self.sorting_cfg, bool):
@@ -177,6 +217,11 @@ class Doxygen:
 
         log.info("Print files")
         for node in self.files.children:
+            self.print_node(node, "")
+        print("\n")
+
+        log.info("Print concepts")
+        for node in self.concepts.children:
             self.print_node(node, "")
 
     def print_node(self, node: Node, indent: str):

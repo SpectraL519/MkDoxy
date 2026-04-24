@@ -74,6 +74,14 @@ class Node:
             if self.debug:
                 log.info(f"Parsing: {self._refid}")
             self._check_attrs()
+
+            # Doxygen < 1.9.5 emits C++20 concepts as kind="variable" with <type>concept</type>.
+            # Detect and re-classify them as Kind.CONCEPT.
+            if self._kind == Kind.VARIABLE:
+                type_elem = self._xml.find("type")
+                if type_elem is not None and type_elem.text and type_elem.text.strip() == "concept":
+                    self._kind = Kind.CONCEPT
+
             self._title = self._name
 
         self._details = Property.Details(self._xml, parser, self._kind)
@@ -211,6 +219,38 @@ class Node:
                 self._parser,
                 self,
             )
+            child._visibility = Visibility.PUBLIC
+            self.add_child(child)
+
+        for innerconcept in self._xml.findall("innerconcept"):
+            refid = innerconcept.get("refid")
+
+            if self._kind in [Kind.GROUP, Kind.DIR, Kind.FILE, Kind.NAMESPACE]:
+                try:
+                    child = self._cache.get(refid)
+                    self.add_child(child)
+                    continue
+                except Exception:
+                    pass
+
+            try:
+                child = Node(
+                    os.path.join(self._dirname, f"{refid}.xml"),
+                    None,
+                    self.project,
+                    self._parser,
+                    self,
+                )
+            except FileNotFoundError:
+                child = Node(
+                    os.path.join(self._dirname, f"{refid}.xml"),
+                    Element("compounddef"),
+                    self.project,
+                    self._parser,
+                    self,
+                    refid=refid,
+                )
+                child._name = innerconcept.text
             child._visibility = Visibility.PUBLIC
             self.add_child(child)
 
@@ -364,6 +404,10 @@ class Node:
         return self._kind.is_interface()
 
     @property
+    def is_concept(self) -> bool:
+        return self._kind.is_concept()
+
+    @property
     def is_typedef(self) -> bool:
         return self._kind.is_typedef()
 
@@ -508,6 +552,8 @@ class Node:
             return prefix("files.md")
         elif self.is_namespace:
             return prefix("namespaces.md")
+        elif self.is_concept:
+            return prefix("concepts.md")
         else:
             return prefix("annotated.md")
 
@@ -519,6 +565,8 @@ class Node:
             return "FileList"
         elif self.is_namespace:
             return "Namespace List"
+        elif self.is_concept:
+            return "Concept List"
         else:
             return "ClassList"
 
@@ -716,6 +764,15 @@ class Node:
                 code.append(f") {self._initializer.plain()}")
             else:
                 code.append(f"#define {self.name_full_unescaped} {self._initializer.plain()}")
+
+        elif self.is_concept:
+            if self._templateparams.has():
+                code.append(f"template<{self._templateparams.plain()}>")
+            constraint = self._initializer.plain()
+            if constraint:
+                code.append(f"concept {self.name_full_unescaped} = {constraint};")
+            else:
+                code.append(f"concept {self.name_full_unescaped} = /* ... */;")
 
         else:
             code.append(self._definition.plain())
