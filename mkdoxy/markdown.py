@@ -161,7 +161,7 @@ class MdItemizedList(Md):
         for child in self.children:
             if not isinstance(child, MdItemizedList):
                 f.write(f"{indent}* ")
-            child.render(f, f"{indent}  ")
+            child.render(f, f"{indent}    ")
 
 
 class MdOrderedList(Md):
@@ -172,7 +172,7 @@ class MdOrderedList(Md):
         f.eol()
         for i, child in enumerate(self.children):
             f.write(f"{indent}{i + 1}. ")
-            child.render(f, indent + "   ")
+            child.render(f, f"{indent}    ")
         f.eol()
 
 
