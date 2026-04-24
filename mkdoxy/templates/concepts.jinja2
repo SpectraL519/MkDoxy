@@ -7,12 +7,10 @@ Here are the concepts with brief descriptions:
 {% for node in nodes recursive %}
 {%- if node.is_concept %}
 * **concept** [**{{node.name_short}}**]({{node.url}}) {{node.brief}}
+{%- elif node.is_namespace and node.has_children %}
+* **namespace** [**{{node.name_short}}**]({{node.url}})
 {%- if node.has_children %}
   {{- loop(node.children)|indent(4, true) }}
-{%- endif %}
-{%- elif node.is_namespace %}
-{%- if node.has_children %}
-  {{- loop(node.children)|indent(0, true) }}
 {%- endif %}
 {%- endif -%}
 {%- endfor %}

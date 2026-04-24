@@ -431,7 +431,31 @@ class GeneratorSnippets:
         errorMsg = self.checkConfig(snippet, project, config, [])
         if errorMsg:
             return errorMsg
-        nodes = self.doxygen[project].concepts.children
+
+        # Build a combined list: namespaces with concepts + top-level concepts
+        doxy = self.doxygen[project]
+        namespaced_refids: set = set()
+
+        def _collect(nodes):
+            for n in nodes:
+                if n.is_concept:
+                    namespaced_refids.add(n.refid)
+                if n.is_namespace:
+                    _collect(n.children)
+
+        def _has_concepts(node):
+            for child in node.children:
+                if child.is_concept:
+                    return True
+                if child.is_namespace and _has_concepts(child):
+                    return True
+            return False
+
+        _collect(doxy.root.children)
+        top_level = [c for c in doxy.concepts.children if c.refid not in namespaced_refids]
+        ns_with_concepts = [n for n in doxy.root.children if n.is_namespace and _has_concepts(n)]
+        nodes = ns_with_concepts + top_level
+
         self._setLinkPrefixNodes(nodes, self.pageUrlPrefix + project + "/")
         return self.generatorBase[project].concepts(nodes, config)
 
