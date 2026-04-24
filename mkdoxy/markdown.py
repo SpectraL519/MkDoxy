@@ -93,18 +93,18 @@ class Code:
 
 
 class MdCodeBlock:
-    def __init__(self, lines: List[str]):
+    def __init__(self, lines: List[str], lang: str = ""):
         self.lines = lines
+        self.lang = lang
 
     def append(self, line: str):
         self.lines.append(line)
 
     def render(self, f: MdRenderer, indent: str):
-        f.write("```\n")
+        f.write(f"{indent}```{self.lang}\n")
         for line in self.lines:
-            f.write(line)
-            f.write("\n")
-        f.write("```\n")
+            f.write(f"{indent}{line}\n")
+        f.write(f"{indent}```\n")
 
 
 class MdBlockQuote(Md):

@@ -23,7 +23,7 @@ from mkdoxy.markdown import (
     MdTableRow,
     Text,
 )
-from mkdoxy.utils import lookahead
+from mkdoxy.utils import lookahead, lang_from_filepath
 
 # https://www.doxygen.nl/manual/commands.html
 SIMPLE_SECTIONS = {
@@ -103,7 +103,10 @@ class XmlParser:
         ret = []
         # programlisting
         if p.tag == "programlisting":
-            code = MdCodeBlock([])
+            # Extract the language from the Doxygen filename attribute
+            lang = lang_from_filepath(filepath=p.get("filename"))
+
+            code = MdCodeBlock([], lang=lang)
             for codeline in p.findall("codeline"):
                 line = ""
                 for highlight in codeline.findall("highlight"):

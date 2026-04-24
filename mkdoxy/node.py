@@ -8,7 +8,7 @@ from mkdoxy.constants import OVERLOAD_OPERATORS, Kind, Visibility
 from mkdoxy.markdown import escape
 from mkdoxy.project import ProjectContext
 from mkdoxy.property import Property
-from mkdoxy.utils import split_safe
+from mkdoxy.utils import split_safe, lang_from_filepath
 from mkdoxy.xml_parser import XmlParser
 
 log: logging.Logger = logging.getLogger("mkdocs")
@@ -634,7 +634,23 @@ class Node:
 
     @property
     def code_language(self) -> str:
-        return self._language
+        # Try to get it explicitly from the XML node first
+        lang = self._xml.get("language") if self._xml is not None else None
+        if lang:
+            return lang
+
+        # Infer the language from the file extension directly from XML
+        location = self._xml.find("location") if self._xml is not None else None
+        if location is not None and location.get("file"):
+            mapped_lang = lang_from_filepath(location.get("file"))
+            if mapped_lang:
+                return mapped_lang
+
+        # Fall back to the inherited _language property
+        if getattr(self, "_language", None):
+            return self._language
+
+        return ""
 
     @property
     def codeblock(self) -> str:
@@ -703,7 +719,12 @@ class Node:
 
         else:
             code.append(self._definition.plain())
-        return "\n".join(["```", *code, "```"])
+
+        lang = self.code_language.lower()
+        if lang == "c++":
+            lang = "cpp"
+
+        return "\n".join([f"```{lang}", *code, "```"])
 
     @property
     def has_base_classes(self) -> bool:
