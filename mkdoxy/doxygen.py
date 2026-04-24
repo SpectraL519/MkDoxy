@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 from xml.etree import ElementTree
 from typing import Union
 
@@ -119,6 +120,10 @@ class Doxygen:
         # After node parsing reclassifies them, collect them into the concepts list.
         self._collect_concepts_from_files()
 
+        # For Doxygen >= 1.9.5, @ingroup on concepts is not reflected in the
+        # group XML (Doxygen bug).  Parse source files to recover the mapping.
+        self._fix_concept_groups()
+
         self._fix_parents(self.files)
 
         if self.debug:
@@ -158,6 +163,122 @@ class Doxygen:
 
         _find_concepts(self.files.children)
         _find_concepts(self.root.children)
+
+    def _fix_concept_groups(self):
+        """Fix missing concept-to-group associations for Doxygen >= 1.9.5.
+
+        Doxygen >= 1.9.5 treats concepts as native compounds but does NOT
+        add them to group XML even when the source uses @ingroup.  This
+        method reads the source file referenced by each concept's <location>
+        element, looks for @ingroup / \\ingroup in the comment block
+        preceding the concept definition, and adds the concept node as a
+        child of the matching group.
+        """
+        if not self.concepts.children or not self.groups.children:
+            return
+
+        # Build a map: group compoundname -> group Node (recursively)
+        group_map: dict[str, "Node"] = {}
+
+        def _build_group_map(nodes):
+            for n in nodes:
+                if n.is_group:
+                    group_map[n._name] = n
+                    _build_group_map(n.children)
+
+        _build_group_map(self.groups.children)
+
+        if not group_map:
+            return
+
+        # Regex matching @ingroup or \ingroup followed by one or more group names
+        ingroup_re = re.compile(r'[@\\]ingroup\s+([\w\s]+)')
+
+        # Cache of already-read source files: filepath -> list of lines
+        file_cache: dict[str, list[str]] = {}
+
+        for concept in self.concepts.children:
+            if not concept.is_concept:
+                continue
+
+            # Check if this concept is already a child of some group
+            already_in_group = False
+            for g in group_map.values():
+                if any(c.refid == concept.refid for c in g.children):
+                    already_in_group = True
+                    break
+            if already_in_group:
+                continue
+
+            # Get source file and line from XML <location>
+            src_file = concept._location.plain()
+            src_line = concept._location.line()
+            if not src_file or src_line <= 0:
+                continue
+
+            # Try to resolve the file path
+            if not os.path.isabs(src_file):
+                # Try relative to CWD (where mkdocs runs)
+                if not os.path.isfile(src_file):
+                    continue
+
+            # Read file (cached)
+            if src_file not in file_cache:
+                try:
+                    with open(src_file, "r", encoding="utf-8", errors="replace") as f:
+                        file_cache[src_file] = f.readlines()
+                except OSError:
+                    continue
+
+            lines = file_cache[src_file]
+
+            # Scan backwards from the concept definition line to find @ingroup
+            # ONLY in the immediately preceding comment block.  We walk upward
+            # from the line before the definition until we leave the comment
+            # (hit a non-comment, non-blank line that isn't part of the block).
+            found_groups: list[str] = []
+            idx = src_line - 2  # 0-indexed, one line before the definition
+            # Skip blank lines / template lines between comment and concept
+            while idx >= 0:
+                stripped = lines[idx].strip()
+                if not stripped or stripped.startswith("template"):
+                    idx -= 1
+                    continue
+                break
+
+            # Now walk the comment block (support both /* */ and /// styles)
+            in_block = False
+            while idx >= 0:
+                stripped = lines[idx].strip()
+                # Detect end of C-style block comment (reading bottom-up)
+                if stripped.endswith("*/") or stripped.startswith("*") or stripped.startswith("/**") or stripped.startswith("/*!"):
+                    in_block = True
+                # Detect C++ style comment
+                if stripped.startswith("///") or stripped.startswith("//!"):
+                    in_block = True
+
+                if not in_block:
+                    break
+
+                m = ingroup_re.search(stripped)
+                if m:
+                    found_groups.extend(m.group(1).split())
+
+                # If we hit start of a block comment, stop
+                if stripped.startswith("/**") or stripped.startswith("/*!") or stripped.startswith("/*"):
+                    break
+
+                idx -= 1
+
+            for gname in found_groups:
+                gname = gname.strip()
+                if gname in group_map:
+                    group_node = group_map[gname]
+                    # Avoid duplicates
+                    if not any(c.refid == concept.refid for c in group_node.children):
+                        group_node.add_child(concept)
+                        if self.debug:
+                            log.info(f"  -> Added concept '{concept.name}' to group '{gname}'")
 
     def _should_sort(self, node: Node) -> bool:
         if isinstance(self.sorting_cfg, bool):
