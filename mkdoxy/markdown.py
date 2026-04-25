@@ -112,11 +112,25 @@ class MdBlockQuote(Md):
         Md.__init__(self, children)
 
     def render(self, f: MdRenderer, indent: str):
-        f.write("\n")
+        f.eol()
+
+        # Render all children into a temporary buffer
+        temp_f = MdRenderer()
         for child in self.children:
-            f.write("> ")
-            child.render(f, "")
-            f.write("\n")
+            child.render(temp_f, "")
+
+        text = temp_f.output
+        if not text:
+            return
+
+        # Prefix every line with '> '
+        for line in text.splitlines():
+            if line.strip() == "":
+                f.write(f"{indent}>\n")
+            else:
+                f.write(f"{indent}> {line}\n")
+
+        f.eol()
 
 
 class MdItalic(Md):

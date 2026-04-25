@@ -162,10 +162,7 @@ class XmlParser:
                 ret.append(t)
 
             elif item.tag == "blockquote":
-                b = MdBlockQuote([])
-                for para in item.findall("para"):
-                    b.extend(self.paras(para))
-                ret.append(b)
+                ret.append(MdBlockQuote(self.paras(item)))
 
             elif item.tag == "heading":
                 ret.append(MdHeader(int(item.get("level")), self.paras(item)))
