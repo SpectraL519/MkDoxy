@@ -289,9 +289,20 @@ class XmlParser:
 
             elif item.tag == "emphasis":
                 ret.append(MdItalic(self.paras(item)))
+
             elif item.tag == "formula" and item.text:
-                equation = item.text.strip("$").strip()
-                if len(p) == 1 and not item.tail:
+                equation = item.text.strip()
+                is_block_explicit = False
+
+                # Check for Doxygen's multiline formula block markers: \f[ ... \f]
+                if equation.startswith("\\[") and equation.endswith("\\]"):
+                    equation = equation[2:-2].strip()
+                    is_block_explicit = True
+                else: # Strip standard markers for \f$ ... \f$
+                    equation = equation.strip("$").strip()
+
+                # Force block equation if \f[ was used, OR if it's the only item in the paragraph (ignoring empty whitespace tails)
+                if is_block_explicit or (len(p) == 1 and not (item.tail and item.tail.strip())):
                     ret.append(MdBlockEquation(equation))
                 else:
                     ret.append(MdInlineEquation(equation))
