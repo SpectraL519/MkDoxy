@@ -156,8 +156,10 @@ class XmlParser:
                 for row in item.findall("row"):
                     r = MdTableRow([])
                     for cell in row.findall("entry"):
+                        cell_contents = []
                         for para in cell.findall("para"):
-                            r.append(MdTableCell(self.paras(para)))
+                            cell_contents.extend(self.paras(para))
+                        r.append(MdTableCell(cell_contents))
                     t.append(r)
                 ret.append(t)
 

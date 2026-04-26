@@ -218,8 +218,12 @@ class MdTableCell(Md):
         Md.__init__(self, children)
 
     def render(self, f: MdRenderer, indent: str):
+        temp_f = MdRenderer()
         for child in self.children:
-            child.render(f, indent)
+            child.render(temp_f, "")
+
+        text = temp_f.output.strip().replace("\n", "<br>")
+        f.write(text)
 
 
 class MdTableRow(Md):
