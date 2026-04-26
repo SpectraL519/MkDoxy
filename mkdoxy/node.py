@@ -766,6 +766,9 @@ class Node:
             code.append(definition)
 
         else:
+            if self._templateparams.has():
+                code.append(f"template<{self._templateparams.plain()}>")
+
             code.append(self._definition.plain())
 
         lang = self.code_language.lower()
