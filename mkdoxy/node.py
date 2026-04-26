@@ -700,7 +700,9 @@ class Node:
             if self.is_static:
                 typ = f"static {typ}"
 
-            if self._params.has():
+            if self._xml is not None and self._xml.find(".//hideparams") is not None:
+                code.append(typ + self.name_full_unescaped + " (...) " + self._specifiers.parsed())
+            elif self._params.has():
                 code.append(typ + self.name_full_unescaped + " (")
                 params = self._params.array(plain=True)
                 for i, param in enumerate(params):
@@ -856,6 +858,9 @@ class Node:
 
     @property
     def params(self) -> str:
+        if self._xml is not None and self._xml.find(".//hideparams") is not None:
+            return "(...)"
+
         if self._params.has():
             return f"({self._params.md()})"
         elif self.is_function:

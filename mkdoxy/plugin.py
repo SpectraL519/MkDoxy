@@ -52,6 +52,8 @@ class MkDoxy(BasePlugin):
         ("doxy-cfg-file", config_options.Type(str, default="", required=False)),
         ("template-dir", config_options.Type(str, default="", required=False)),
         ("sorting", config_options.Type((bool, dict), default=True)),
+        ("hideparams", config_options.Type(bool, default=False)),
+        #TODO: hidetparams
     )
 
     def is_enabled(self) -> bool:
@@ -115,11 +117,19 @@ class MkDoxy(BasePlugin):
                 tempDirApi = tempDir(config["site_dir"], "assets/.doxy/", project_name)
 
             # Check src changes -> run Doxygen
+            doxy_cfg_override = project_data.get("doxy-cfg", {})
+            if project_data.get("hideparams", False):
+                hideparams_alias = 'hideparams="@xmlonly <hideparams/> @endxmlonly"'
+                if "ALIASES" in doxy_cfg_override:
+                    doxy_cfg_override["ALIASES"] += f" {hideparams_alias}"
+                else:
+                    doxy_cfg_override["ALIASES"] = hideparams_alias
+
             doxygenRun = DoxygenRun(
                 self.config["doxygen-bin-path"],
                 project_data.get("src-dirs"),
                 tempDirApi,
-                project_data.get("doxy-cfg", {}),
+                doxy_cfg_override,
                 project_data.get("doxy-cfg-file", ""),
             )
             if doxygenRun.checkAndRun():
